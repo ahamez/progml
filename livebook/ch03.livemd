@@ -1,0 +1,114 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# Programming Machine Learning - Chapter 3
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.4.1"},
+  {:nimble_csv, "~> 1.2"},
+  {:vega_lite, "~> 0.1.6"},
+  {:kino_vega_lite, "~> 0.1.7"},
+  {:explorer, "~> 0.4.0"}
+])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
+## Load data
+
+```elixir
+file = File.stream!("#{__DIR__}/../book/02_first/pizza.txt")
+
+{:ok, data} =
+  file
+  |> Enum.reduce([], fn line, acc ->
+    line =
+      line
+      |> String.trim()
+      |> String.split()
+      |> Enum.join(",")
+
+    [acc | [line, "\n"]]
+  end)
+  |> :binary.list_to_bin()
+  |> Explorer.DataFrame.load_csv(dtypes: [{"Pizzas", :float}, {"Reservations", :float}])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:ok,
+ #Explorer.DataFrame<
+   Polars[30 x 2]
+   Reservations float [13.0, 2.0, 14.0, 23.0, 13.0, ...]
+   Pizzas float [33.0, 16.0, 32.0, 51.0, 27.0, ...]
+ >}
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Without bias
+
+```elixir
+defmodule GradientDescent do
+  import Nx.Defn
+
+  defn predict(x, w) do
+    x * w
+  end
+
+  defn gradient(x, y, w) do
+    2 * Nx.mean(x * (predict(x, w) - y))
+  end
+
+  # defnp loss_tensor(x, y, w) do
+  #   Nx.mean((predict(x, w) - y) ** 2)
+  # end
+
+  # defp loss(x, y, w) do
+  #   Nx.to_number(loss_tensor(x, y, w))
+  # end
+
+  def train(x, y, iterations, lr) do
+    do_train(x, y, iterations, lr, 0)
+    # do_train(x, y, iterations, Nx.tensor(lr), Nx.tensor(0))
+    # do_train(x, y, iterations, Nx.tensor(lr, type: :f64), Nx.tensor(0, type: :f64))
+  end
+
+  # -- Private
+
+  defp do_train(_x, _y, 0, _lr, w), do: w
+
+  defp do_train(x, y, iterations, lr, w) do
+    w = Nx.subtract(w, Nx.multiply(gradient(x, y, w), lr))
+    # IO.puts("[#{iterations}] w: #{inspect(Nx.to_number(w))} loss: #{inspect(loss(x, y, w))}")
+
+    do_train(x, y, iterations - 1, lr, w)
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, GradientDescent, <<70, 79, 82, 49, 0, 0, 13, ...>>, {:do_train, 5}}
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+GradientDescent.train(data["Reservations"], data["Pizzas"], 100, 0.001)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+#Nx.Tensor<
+  f64
+  1.8436928702010968
+>
+```

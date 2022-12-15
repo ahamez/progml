@@ -1,0 +1,220 @@
+# Programming Machine Learning - Chapter 2
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.4.1"},
+  {:nimble_csv, "~> 1.2"},
+  {:vega_lite, "~> 0.1.6"},
+  {:kino_vega_lite, "~> 0.1.7"},
+  {:explorer, "~> 0.4.0"}
+])
+```
+
+## Load data
+
+```elixir
+file = File.stream!("#{__DIR__}/../book/02_first/pizza.txt")
+
+{:ok, data} =
+  file
+  |> Enum.reduce([], fn line, acc ->
+    line =
+      line
+      |> String.trim()
+      |> String.split()
+      |> Enum.join(",")
+
+    [acc | [line, "\n"]]
+  end)
+  |> :binary.list_to_bin()
+  |> Explorer.DataFrame.load_csv(dtypes: [{"Pizzas", :float}, {"Reservations", :float}])
+```
+
+```elixir
+Kino.DataTable.new(data)
+```
+
+<!-- livebook:{"attrs":{"chart_title":null,"height":null,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":400},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 400)
+|> VegaLite.data_from_values(data, only: ["Reservations", "Pizzas"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+|> VegaLite.encode_field(:y, "Pizzas", type: :quantitative)
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Linear regression
+
+```elixir
+defmodule Linear do
+  import Nx.Defn
+
+  defn predict(x, w) do
+    x * w
+  end
+
+  def train(kino_frame, x, y, iterations, lr) do
+    do_train(kino_frame, x, y, iterations, lr, _w = 0)
+  end
+
+  # -- Private
+
+  defnp loss_tensor(x, y, w) do
+    Nx.mean((predict(x, w) - y) ** 2)
+  end
+
+  defp loss(x, y, w) do
+    Nx.to_number(loss_tensor(x, y, w))
+  end
+
+  defp do_train(_kino_frame, _x, _y, 0, _lr, _w) do
+    :error
+  end
+
+  defp do_train(kino_frame, x, y, iterations, lr, w) do
+    current_loss = loss(x, y, w)
+    # IO.puts("[#{iterations}] Current loss: #{current_loss} | w = #{w}")
+    Kino.Frame.render(kino_frame, "[#{iterations}] Current loss: #{current_loss} | w = #{w}")
+
+    cond do
+      loss(x, y, w + lr) < current_loss ->
+        do_train(kino_frame, x, y, iterations - 1, lr, w + lr)
+
+      loss(x, y, w - lr) < current_loss ->
+        do_train(kino_frame, x, y, iterations - 1, lr, w - lr)
+
+      true ->
+        {:ok, w, current_loss}
+    end
+  end
+end
+```
+
+```elixir
+frame = Kino.Frame.new()
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+iterations = Kino.Input.number("Iterations", default: 10_000) |> Kino.render()
+learning_rate = Kino.Input.range("Learning rate", default: 0.01, min: 0.01, max: 1.0, step: 0.01)
+```
+
+```elixir
+iterations = Kino.Input.read(iterations)
+learning_rate = Kino.Input.read(learning_rate) |> IO.inspect(label: "Learning rate")
+
+pred =
+  with {:ok, w, loss} <-
+         Linear.train(frame, data["Reservations"], data["Pizzas"], iterations, learning_rate) do
+    IO.inspect({w, loss})
+    Linear.predict(data["Reservations"], w)
+  end
+
+data = Explorer.DataFrame.put(data, "Prediction", pred)
+```
+
+<!-- livebook:{"attrs":{"chart_title":null,"height":null,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":400},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 400)
+|> VegaLite.data_from_values(data, only: ["Reservations", "Pizzas", "Prediction"])
+|> VegaLite.layers([
+  VegaLite.new()
+  |> VegaLite.mark(:point)
+  |> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "Pizzas", type: :quantitative),
+  VegaLite.new()
+  |> VegaLite.mark(:line)
+  |> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "Prediction", type: :quantitative)
+])
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Linear regression - with bias
+
+```elixir
+defmodule LinearBias do
+  import Nx.Defn
+
+  defn predict(x, w, b) do
+    x * w + b
+  end
+
+  def train(x, y, iterations, lr) do
+    current_loss = loss(x, y, _w = 0, _b = 0)
+
+    do_train(x, y, iterations, lr, _w = 0, _b = 0, current_loss)
+  end
+
+  # -- Private
+
+  defnp loss_tensor(x, y, w, b) do
+    Nx.mean((predict(x, w, b) - y) ** 2)
+  end
+
+  defp loss(x, y, w, b) do
+    Nx.to_number(loss_tensor(x, y, w, b))
+  end
+
+  defp do_train(_x, _y, 0, _lr, _w, _b, _current_loss) do
+    :error
+  end
+
+  defp do_train(x, y, iterations, lr, w, b, current_loss) do
+    cond do
+      (loss = loss(x, y, w + lr, b)) < current_loss ->
+        do_train(x, y, iterations - 1, lr, w + lr, b, loss)
+
+      (loss = loss(x, y, w - lr, b)) < current_loss ->
+        do_train(x, y, iterations - 1, lr, w - lr, b, loss)
+
+      (loss = loss(x, y, w, b + lr)) < current_loss ->
+        do_train(x, y, iterations - 1, lr, w, b + lr, loss)
+
+      (loss = loss(x, y, w, b - lr)) < current_loss ->
+        do_train(x, y, iterations - 1, lr, w, b - lr, loss)
+
+      true ->
+        {:ok, w, b, current_loss}
+    end
+  end
+end
+```
+
+```elixir
+iterations = 100_000
+learning_rate = 0.001
+
+pred =
+  with {:ok, weight, bias, loss} <-
+         LinearBias.train(data["Reservations"], data["Pizzas"], iterations, learning_rate) do
+    IO.inspect({weight, bias, loss})
+    LinearBias.predict(data["Reservations"], weight, bias)
+  end
+
+data = Explorer.DataFrame.put(data, "Prediction", pred)
+```
+
+<!-- livebook:{"attrs":{"chart_title":null,"height":null,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":400},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
+
+```elixir
+VegaLite.new(width: 400)
+|> VegaLite.data_from_values(data, only: ["Reservations", "Pizzas", "Prediction"])
+|> VegaLite.layers([
+  VegaLite.new()
+  |> VegaLite.mark(:point)
+  |> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "Pizzas", type: :quantitative),
+  VegaLite.new()
+  |> VegaLite.mark(:line)
+  |> VegaLite.encode_field(:x, "Reservations", type: :quantitative)
+  |> VegaLite.encode_field(:y, "Prediction", type: :quantitative)
+])
+```
