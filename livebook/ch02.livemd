@@ -6,7 +6,14 @@ Mix.install([
   {:nimble_csv, "~> 1.2"},
   {:vega_lite, "~> 0.1.6"},
   {:kino_vega_lite, "~> 0.1.7"},
-  {:explorer, "~> 0.4.0"}
+  {:explorer, "~> 0.4.0"},
+  {:exla, "~> 0.2"},
+  config: [
+    nx: [
+      default_backend: EXLA.Backend,
+      default_defn_options: [compiler: EXLA]
+    ]
+  ]
 ])
 ```
 
@@ -189,17 +196,21 @@ end
 ```
 
 ```elixir
-iterations = 100_000
-learning_rate = 0.001
+iterations = 200_000
+learning_rate = 0.0001
 
-pred =
-  with {:ok, weight, bias, loss} <-
-         LinearBias.train(data["Reservations"], data["Pizzas"], iterations, learning_rate) do
-    IO.inspect({weight, bias, loss})
-    LinearBias.predict(data["Reservations"], weight, bias)
-  end
+{time, {:ok, w, b, _loss}} =
+  :timer.tc(
+    LinearBias,
+    :train,
+    [data["Reservations"], data["Pizzas"], iterations, learning_rate]
+  )
 
-data = Explorer.DataFrame.put(data, "Prediction", pred)
+IO.puts("w=#{Nx.to_number(w)} b=#{Nx.to_number(b)} in #{time / 1_000} ms")
+
+prediction = LinearBias.predict(data["Reservations"], w, b)
+
+data = Explorer.DataFrame.put(data, "Prediction", prediction)
 ```
 
 <!-- livebook:{"attrs":{"chart_title":null,"height":null,"layers":[{"chart_type":"point","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Pizzas","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"},{"chart_type":"line","color_field":null,"color_field_aggregate":null,"color_field_bin":false,"color_field_scale_scheme":null,"color_field_type":null,"data_variable":"data","x_field":"Reservations","x_field_aggregate":null,"x_field_bin":false,"x_field_scale_type":null,"x_field_type":"quantitative","y_field":"Prediction","y_field_aggregate":null,"y_field_bin":false,"y_field_scale_type":null,"y_field_type":"quantitative"}],"vl_alias":"Elixir.VegaLite","width":400},"chunks":null,"kind":"Elixir.KinoVegaLite.ChartCell","livebook_object":"smart_cell"} -->
