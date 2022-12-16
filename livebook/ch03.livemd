@@ -8,7 +8,14 @@ Mix.install([
   {:nimble_csv, "~> 1.2"},
   {:vega_lite, "~> 0.1.6"},
   {:kino_vega_lite, "~> 0.1.7"},
-  {:explorer, "~> 0.4.0"}
+  {:explorer, "~> 0.4.0"},
+  {:exla, "~> 0.2"},
+  config: [
+    nx: [
+      default_backend: EXLA.Backend,
+      default_defn_options: [compiler: EXLA]
+    ]
+  ]
 ])
 ```
 
@@ -18,7 +25,15 @@ Mix.install([
 :ok
 ```
 
+## Notes
+
+* I used the following blog post to understand how to use [Nx automatic differentation](https://hexdocs.pm/nx/intro-to-nx.html#automatic-differentiation-autograd): https://dockyard.com/blog/2021/04/08/up-and-running-nx.
+* I'm not sure if EXLA has been set up correctly: I don't observe any particular speed boost.
+* Contrary to the Python version, tensors parameters are in lower-case as Elixir intepret them as modules names (i.e. atoms).
+
 ## Load data
+
+The data provided with the book is not using a particular format, it's just plain text. The following code converts it to CSV.
 
 ```elixir
 file = File.stream!("#{__DIR__}/../book/02_first/pizza.txt")
@@ -49,7 +64,7 @@ file = File.stream!("#{__DIR__}/../book/02_first/pizza.txt")
  >}
 ```
 
-<!-- livebook:{"branch_parent_index":0} -->
+<!-- livebook:{"branch_parent_index":1} -->
 
 ## Without bias
 
@@ -57,37 +72,33 @@ file = File.stream!("#{__DIR__}/../book/02_first/pizza.txt")
 defmodule GradientDescent do
   import Nx.Defn
 
-  defn predict(x, w) do
-    x * w
-  end
-
-  defn gradient(x, y, w) do
-    2 * Nx.mean(x * (predict(x, w) - y))
-  end
-
-  # defnp loss_tensor(x, y, w) do
-  #   Nx.mean((predict(x, w) - y) ** 2)
-  # end
-
-  # defp loss(x, y, w) do
-  #   Nx.to_number(loss_tensor(x, y, w))
-  # end
-
   def train(x, y, iterations, lr) do
-    do_train(x, y, iterations, lr, 0)
-    # do_train(x, y, iterations, Nx.tensor(lr), Nx.tensor(0))
-    # do_train(x, y, iterations, Nx.tensor(lr, type: :f64), Nx.tensor(0, type: :f64))
+    seed = DateTime.utc_now() |> DateTime.to_unix()
+    {w, _new_key} = Nx.Random.normal(Nx.Random.key(seed))
+
+    for _ <- 1..iterations, reduce: w do
+      w_acc -> update(x, y, lr, w_acc)
+    end
   end
 
   # -- Private
 
-  defp do_train(_x, _y, 0, _lr, w), do: w
+  defnp predict(x, w) do
+    x * w
+  end
 
-  defp do_train(x, y, iterations, lr, w) do
-    w = Nx.subtract(w, Nx.multiply(gradient(x, y, w), lr))
-    # IO.puts("[#{iterations}] w: #{inspect(Nx.to_number(w))} loss: #{inspect(loss(x, y, w))}")
+  defnp loss(x, y, w) do
+    Nx.mean((predict(x, w) - y) ** 2)
+  end
 
-    do_train(x, y, iterations - 1, lr, w)
+  defnp gradient(x, y, w) do
+    # Equivalent to
+    #   w_gradient = 2 * Nx.mean(x * (predict(x, w) - y))
+    grad(w, &loss(x, y, &1))
+  end
+
+  defnp update(x, y, lr, w) do
+    w - gradient(x, y, w) * lr
   end
 end
 ```
@@ -95,7 +106,7 @@ end
 <!-- livebook:{"output":true} -->
 
 ```
-{:module, GradientDescent, <<70, 79, 82, 49, 0, 0, 13, ...>>, {:do_train, 5}}
+{:module, GradientDescent, <<70, 79, 82, 49, 0, 0, 17, ...>>, {:update, 4}}
 ```
 
 <!-- livebook:{"reevaluate_automatically":true} -->
@@ -111,4 +122,78 @@ GradientDescent.train(data["Reservations"], data["Pizzas"], 100, 0.001)
   f64
   1.8436928702010968
 >
+```
+
+<!-- livebook:{"branch_parent_index":1} -->
+
+## With bias
+
+```elixir
+defmodule GradientDescentWithBias do
+  import Nx.Defn
+
+  def train(x, y, iterations, lr) do
+    seed = DateTime.utc_now() |> DateTime.to_unix()
+    {w, _new_key} = Nx.Random.normal(Nx.Random.key(seed))
+    {b, _new_key} = Nx.Random.normal(Nx.Random.key(seed))
+
+    for _i <- 1..iterations, reduce: {w, b} do
+      {w_acc, b_acc} ->
+        # IO.puts("#{i}: #{inspect(Nx.to_number(w_acc))} #{inspect(Nx.to_number(b_acc))}")
+        update(x, y, lr, {w_acc, b_acc})
+    end
+  end
+
+  # -- Private
+
+  defnp predict(x, {w, b}) do
+    x * w + b
+  end
+
+  defnp loss(x, y, {w, b}) do
+    Nx.mean((predict(x, {w, b}) - y) ** 2)
+  end
+
+  defnp gradient(x, y, {w, b}) do
+    # Equivalent to
+    #   w_gradient = 2 * Nx.mean(x * (predict(x, w, b) - y))
+    #   b_gradient = 2 * Nx.Mean(predict(x, w, b) - y)
+    grad({w, b}, &loss(x, y, &1))
+  end
+
+  defnp update(x, y, lr, {w, b}) do
+    {new_w, new_b} = gradient(x, y, {w, b})
+
+    {w - new_w * lr, b - new_b * lr}
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, GradientDescentWithBias, <<70, 79, 82, 49, 0, 0, 18, ...>>, {:update, 4}}
+```
+
+```elixir
+{time, {w, b}} =
+  :timer.tc(
+    GradientDescentWithBias,
+    :train,
+    [data["Reservations"], data["Pizzas"], 20_000, 0.0001]
+  )
+
+IO.puts("w=#{Nx.to_number(w)} b=#{Nx.to_number(b)} in #{time / 1_000} ms")
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+w=1.332641135610406 b=8.833024724553088 in 3354.703 ms
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
 ```
