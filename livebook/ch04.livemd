@@ -1,0 +1,131 @@
+# Programming Machine Learning - Chapter 4
+
+```elixir
+Mix.install([
+  {:nx, "~> 0.4.1"},
+  {:nimble_csv, "~> 1.2"},
+  {:vega_lite, "~> 0.1.6"},
+  {:kino_vega_lite, "~> 0.1.7"},
+  {:explorer, "~> 0.4.0"},
+  {:exla, "~> 0.2"},
+  config: [
+    nx: [
+      default_backend: EXLA.Backend,
+      default_defn_options: [compiler: EXLA]
+    ]
+  ]
+])
+```
+
+## Notes
+
+## Load data
+
+The data provided with the book is not using a particular format, it's just plain text. The following code converts it to CSV.
+
+```elixir
+{:ok, data} =
+  "#{__DIR__}/../book/04_hyperspace/pizza_3_vars.txt"
+  |> File.stream!()
+  |> Enum.reduce([], fn line, acc ->
+    line =
+      line
+      |> String.trim()
+      |> String.split()
+      |> Enum.join(",")
+
+    [acc | [line, "\n"]]
+  end)
+  |> :binary.list_to_bin()
+  |> Explorer.DataFrame.load_csv()
+```
+
+```elixir
+x_series =
+  data
+  |> Explorer.DataFrame.discard("Pizzas")
+  |> Explorer.DataFrame.to_series()
+  |> Enum.map(fn {_name, values} -> Explorer.Series.to_tensor(values) end)
+
+{x_cols} = Enum.at(x_series, 0) |> Nx.shape()
+
+ones = Nx.broadcast(1, {x_cols})
+
+x =
+  [ones | x_series]
+  |> Nx.stack()
+  |> Nx.transpose()
+
+y =
+  data
+  |> Explorer.DataFrame.pull("Pizzas")
+  |> Explorer.Series.to_tensor()
+  |> Nx.reshape({x_cols, 1})
+
+{Nx.shape(x), Nx.shape(y)}
+```
+
+```elixir
+defmodule HyperSpace do
+  import Nx.Defn
+
+  def train(x, y, iterations, lr) do
+    {_x_rows, x_cols} = Nx.shape(x)
+
+    seed = DateTime.utc_now() |> DateTime.to_unix()
+    {w, _new_key} = Nx.Random.normal(Nx.Random.key(seed), shape: {x_cols, 1})
+
+    for _ <- 1..iterations, reduce: w do
+      w_acc -> update(x, y, lr, w_acc)
+    end
+  end
+
+  def train_batched(x, y, iterations, lr) do
+    {_x_rows, x_cols} = Nx.shape(x)
+
+    seed = DateTime.utc_now() |> DateTime.to_unix()
+    {w, _new_key} = Nx.Random.normal(Nx.Random.key(seed), shape: {x_cols, 1})
+
+    x_stream = Nx.to_batched(x, 10)
+    y_stream = Nx.to_batched(y, 10)
+    stream = Stream.zip(x_stream, y_stream)
+
+    for _ <- 1..iterations, reduce: w do
+      w_acc ->
+        Enum.reduce(
+          stream,
+          w_acc,
+          fn {x, y}, w_acc ->
+            update(x, y, lr, w_acc)
+          end
+        )
+    end
+  end
+
+  # -- Private
+
+  defnp predict(x, w) do
+    Nx.dot(x, w)
+  end
+
+  defnp loss(x, y, w) do
+    Nx.mean((predict(x, w) - y) ** 2)
+  end
+
+  defnp gradient(x, y, w) do
+    grad(w, &loss(x, y, &1))
+  end
+
+  defnp update(x, y, lr, w) do
+    w - gradient(x, y, w) * lr
+  end
+end
+```
+
+```elixir
+HyperSpace.train(x, y, 100_000, 0.001)
+```
+
+```elixir
+HyperSpace.train_batched(x, y, 100_000, 0.001)
+```
