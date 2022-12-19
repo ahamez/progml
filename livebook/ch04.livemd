@@ -19,53 +19,53 @@ Mix.install(
 )
 ```
 
-## Notes
-
 ## Load data
 
-The data provided with the book is not using a particular format, it's just plain text. The following code converts it to CSV.
-
 ```elixir
-{:ok, data} =
-  "#{__DIR__}/../book/04_hyperspace/pizza_3_vars.txt"
-  |> File.stream!()
-  |> Enum.reduce([], fn line, acc ->
-    line =
-      line
-      |> String.trim()
-      |> String.split()
-      |> Enum.join(",")
+defmodule Data do
+  def load(file, label_column) do
+    {:ok, data} =
+      file
+      |> File.stream!()
+      |> Enum.reduce([], fn line, acc ->
+        line =
+          line
+          |> String.trim()
+          |> String.split()
+          |> Enum.join(",")
 
-    [acc | [line, "\n"]]
-  end)
-  |> :binary.list_to_bin()
-  |> Explorer.DataFrame.load_csv()
+        [acc | [line, "\n"]]
+      end)
+      |> :binary.list_to_bin()
+      |> Explorer.DataFrame.load_csv()
+
+    x_series =
+      data
+      |> Explorer.DataFrame.discard(label_column)
+      |> Explorer.DataFrame.to_series()
+      |> Enum.map(fn {_name, values} -> Explorer.Series.to_tensor(values) end)
+
+    {x_cols} = Enum.at(x_series, 0) |> Nx.shape()
+
+    ones = Nx.broadcast(1, {x_cols})
+
+    x =
+      [ones | x_series]
+      |> Nx.stack()
+      |> Nx.transpose()
+
+    y =
+      data
+      |> Explorer.DataFrame.pull(label_column)
+      |> Explorer.Series.to_tensor()
+      |> Nx.reshape({x_cols, 1})
+
+    {x, y}
+  end
+end
 ```
 
-```elixir
-x_series =
-  data
-  |> Explorer.DataFrame.discard("Pizzas")
-  |> Explorer.DataFrame.to_series()
-  |> Enum.map(fn {_name, values} -> Explorer.Series.to_tensor(values) end)
-
-{x_cols} = Enum.at(x_series, 0) |> Nx.shape()
-
-ones = Nx.broadcast(1, {x_cols})
-
-x =
-  [ones | x_series]
-  |> Nx.stack()
-  |> Nx.transpose()
-
-y =
-  data
-  |> Explorer.DataFrame.pull("Pizzas")
-  |> Explorer.Series.to_tensor()
-  |> Nx.reshape({x_cols, 1})
-
-{Nx.shape(x), Nx.shape(y)}
-```
+## Training
 
 ```elixir
 defmodule HyperSpace do
@@ -124,10 +124,50 @@ defmodule HyperSpace do
 end
 ```
 
+## Pizzas
+
 ```elixir
-HyperSpace.train(x, y, 100_000, 0.001)
+{x, y} = Data.load("#{__DIR__}/../book/04_hyperspace/pizza_3_vars.txt", "Pizzas")
 ```
 
 ```elixir
-HyperSpace.train_batched(x, y, 100_000, 0.001)
+HyperSpace.train(x, y, _iterations = 100_000, _learning_rate = 0.001)
+```
+
+```elixir
+HyperSpace.train_batched(x, y, _iterations = 100_000, _learning_rate = 0.001)
+```
+
+<!-- livebook:{"branch_parent_index":1} -->
+
+## Life expectancy
+
+```elixir
+{x, y} =
+  Data.load(
+    "#{__DIR__}/../book/data/life-expectancy/life-expectancy-without-country-names.txt",
+    "Life"
+  )
+```
+
+A small learning rate is required, otherwise we end up with an overflow:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+#Nx.Tensor<
+  f64[4][1]
+  EXLA.Backend<host:0, 0.2555518063.1281753108.145331>
+  [
+    [NaN],
+    [NaN],
+    [NaN],
+    [NaN]
+  ]
+>
+
+```
+
+```elixir
+HyperSpace.train(x, y, _iterations = 1_000_000, _learning_rate = 0.0001)
 ```
