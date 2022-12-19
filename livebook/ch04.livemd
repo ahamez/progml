@@ -1,20 +1,22 @@
 # Programming Machine Learning - Chapter 4
 
 ```elixir
-Mix.install([
-  {:nx, "~> 0.4.1"},
-  {:nimble_csv, "~> 1.2"},
-  {:vega_lite, "~> 0.1.6"},
-  {:kino_vega_lite, "~> 0.1.7"},
-  {:explorer, "~> 0.4.0"},
-  {:exla, "~> 0.2"},
+Mix.install(
+  [
+    {:nx, "~> 0.4.1"},
+    {:nimble_csv, "~> 1.2"},
+    {:vega_lite, "~> 0.1.6"},
+    {:kino_vega_lite, "~> 0.1.7"},
+    {:explorer, "~> 0.4.0"},
+    {:exla, "~> 0.2"}
+  ],
   config: [
     nx: [
       default_backend: EXLA.Backend,
       default_defn_options: [compiler: EXLA]
     ]
   ]
-])
+)
 ```
 
 ## Notes
