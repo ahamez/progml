@@ -1,0 +1,135 @@
+# Programming Machine Learning - Chapter 5
+
+```elixir
+Mix.install(
+  [
+    {:nx, "~> 0.4"},
+    {:explorer, "~> 0.4"},
+    {:exla, "~> 0.4"}
+  ],
+  config: [
+    nx: [
+      default_backend: EXLA.Backend,
+      default_defn_options: [compiler: EXLA]
+    ]
+  ]
+)
+```
+
+## Load data
+
+```elixir
+defmodule Data do
+  def load(file, label_column) do
+    {:ok, data} =
+      file
+      |> File.stream!()
+      |> Enum.reduce([], fn line, acc ->
+        line =
+          line
+          |> String.trim()
+          |> String.split()
+          |> Enum.join(",")
+
+        [acc | [line, "\n"]]
+      end)
+      |> :binary.list_to_bin()
+      |> Explorer.DataFrame.load_csv()
+
+    x_series =
+      data
+      |> Explorer.DataFrame.discard(label_column)
+      |> Explorer.DataFrame.to_series()
+      |> Enum.map(fn {_name, values} -> Explorer.Series.to_tensor(values) end)
+
+    {x_cols} = Enum.at(x_series, 0) |> Nx.shape()
+
+    ones = Nx.broadcast(1, {x_cols})
+
+    x =
+      [ones | x_series]
+      |> Nx.stack()
+      |> Nx.transpose()
+
+    y =
+      data
+      |> Explorer.DataFrame.pull(label_column)
+      |> Explorer.Series.to_tensor()
+      |> Nx.reshape({x_cols, 1})
+
+    {x, y}
+  end
+end
+```
+
+## Training
+
+```elixir
+defmodule Ch05 do
+  import Nx.Defn
+
+  def train(x, y, iterations, lr) do
+    {_x_rows, x_cols} = Nx.shape(x)
+
+    w = Nx.broadcast(0, {x_cols, 1})
+
+    for _i <- 1..iterations, reduce: w do
+      w_acc ->
+        # IO.puts("#{i} => Loss: #{Nx.to_number(loss(x, y, w_acc))}")
+        update(x, y, lr, w_acc)
+    end
+  end
+
+  defn classify(x, w) do
+    forward(x, w) |> Nx.round()
+  end
+
+  def test(x, y, w) do
+    {total_examples, _} = Nx.shape(x)
+    correct_results = Nx.sum(Nx.equal(classify(x, w), y))
+
+    {Nx.to_number(correct_results), total_examples}
+  end
+
+  # -- Private
+
+  # Was previously `predict`.
+  defnp forward(x, w) do
+    Nx.sigmoid(Nx.dot(x, w))
+  end
+
+  defnp loss(x, y, w) do
+    y_hat = forward(x, w)
+    first_term = y * Nx.log(y_hat)
+    second_term = (1 - y) * Nx.log(1 - y_hat)
+
+    -Nx.mean(first_term + second_term)
+  end
+
+  defnp gradient(x, y, w) do
+    grad(w, &loss(x, y, &1))
+  end
+
+  defnp update(x, y, lr, w) do
+    w - gradient(x, y, w) * lr
+  end
+end
+```
+
+## Pizzas
+
+```elixir
+{x, y} = Data.load("#{__DIR__}/../book/05_discerning/police.txt", "Police")
+```
+
+```elixir
+w = Ch05.train(x, y, _iterations = 10_000, _learning_rate = 0.001)
+```
+
+```elixir
+{correct_predictions, total_samples} = Ch05.test(x, y, w)
+
+IO.puts(
+  "#{correct_predictions}/#{total_samples} => #{correct_predictions / total_samples * 100}%"
+)
+```
