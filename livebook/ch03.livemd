@@ -5,12 +5,9 @@
 ```elixir
 Mix.install(
   [
-    {:nx, "~> 0.4.1"},
-    {:nimble_csv, "~> 1.2"},
-    {:vega_lite, "~> 0.1.6"},
-    {:kino_vega_lite, "~> 0.1.7"},
-    {:explorer, "~> 0.4.0"},
-    {:exla, "~> 0.2"}
+    {:nx, "~> 0.4"},
+    {:explorer, "~> 0.4"},
+    {:exla, "~> 0.4"}
   ],
   config: [
     nx: [
@@ -119,17 +116,9 @@ GradientDescent.train(data["Reservations"], data["Pizzas"], 100, 0.001)
 <!-- livebook:{"output":true} -->
 
 ```
-
-23:13:55.224 [info] TfrtCpuClient created.
-
-```
-
-<!-- livebook:{"output":true} -->
-
-```
 #Nx.Tensor<
   f64
-  EXLA.Backend<host:0, 0.4292867361.1011744788.7277>
+  EXLA.Backend<host:0, 0.4090228358.3360030739.105203>
   1.8436928702010968
 >
 ```
@@ -199,7 +188,9 @@ IO.puts("w=#{Nx.to_number(w)} b=#{Nx.to_number(b)} in #{time / 1_000} ms")
 <!-- livebook:{"output":true} -->
 
 ```
-w=1.0811316924151222 b=13.172241390430624 in 13385.998 ms
+
+20:50:21.081 [info] TfrtCpuClient created.
+w=1.0811303090591726 b=13.172265257054141 in 12849.925 ms
 ```
 
 <!-- livebook:{"output":true} -->

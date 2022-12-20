@@ -3,12 +3,11 @@
 ```elixir
 Mix.install(
   [
-    {:nx, "~> 0.4.1"},
-    {:nimble_csv, "~> 1.2"},
-    {:vega_lite, "~> 0.1.6"},
-    {:kino_vega_lite, "~> 0.1.7"},
-    {:explorer, "~> 0.4.0"},
-    {:exla, "~> 0.2"}
+    {:nx, "~> 0.4"},
+    {:vega_lite, "~> 0.1"},
+    {:kino_vega_lite, "~> 0.1"},
+    {:explorer, "~> 0.4"},
+    {:exla, "~> 0.4"}
   ],
   config: [
     nx: [
